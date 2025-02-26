@@ -19,6 +19,7 @@ def debug_print(*args):
 messages = []
 current_speed = 1.0
 MOUSE_MOVE_THRESHOLD = 100
+max_messages = 100
 
 def is_screensaver_mode():
     return len(sys.argv) > 1 and sys.argv[1].lower() in ["/s", "-s"]
@@ -39,6 +40,7 @@ def show_config_dialog():
                     "font_name": font_entry.get(),
                     "font_size": int(size_entry.get()),
                     "speed": float(speed_entry.get()),
+                    "max_messages": int(max_messages_entry.get()),
                     "topic_color": list(map(int, topic_color_entry.get().split(','))),
                     "payload_color": list(map(int, payload_color_entry.get().split(','))),
                     "keywords": {},
@@ -57,7 +59,7 @@ def show_config_dialog():
                             int(c) for c in colors.split(",")
                         ]
 
-            with open("config.json", "w") as f:
+            with open("MatrixQTTConfig.json", "w") as f:
                 json.dump(new_config, f, indent=2, ensure_ascii=False)
             
             root.destroy()
@@ -72,7 +74,7 @@ def show_config_dialog():
             target_entry.insert(0, f"{int(rgb[0])},{int(rgb[1])},{int(rgb[2])}")
 
     try:
-        with open("config.json") as f:
+        with open("MatrixQTTConfig.json") as f:
             config = json.load(f)
     except:
         config = {}
@@ -143,6 +145,12 @@ def show_config_dialog():
     speed_entry = ttk.Entry(display_frame)
     speed_entry.grid(row=row, column=1, sticky='ew', padx=5, pady=2)
     speed_entry.insert(0, str(config.get("screensaver", {}).get("speed", 7.0)))
+    
+    row += 1
+    ttk.Label(display_frame, text="Max Messages:").grid(row=row, column=0, sticky='w', padx=5, pady=2)
+    max_messages_entry = ttk.Entry(display_frame)
+    max_messages_entry.grid(row=row, column=1, sticky='ew', padx=5, pady=2)
+    max_messages_entry.insert(0, str(config.get("screensaver", {}).get("max_messages", 100)))
 
     def add_color_picker(row, label, config_key, default):
         ttk.Label(display_frame, text=label).grid(row=row, column=0, sticky='w', padx=5, pady=2)
@@ -187,6 +195,12 @@ def show_config_dialog():
     alpha_entry = ttk.Entry(display_frame)
     alpha_entry.grid(row=row, column=1, sticky='ew', padx=5, pady=2)
     alpha_entry.insert(0, str(config.get("screensaver", {}).get("min_alpha", 50)))
+    
+    row += 1
+    ttk.Label(display_frame, text="Fade Duration (sec):").grid(row=row, column=0, sticky='w', padx=5, pady=2)
+    fade_duration_entry = ttk.Entry(display_frame)
+    fade_duration_entry.grid(row=row, column=1, sticky='ew', padx=5, pady=2)
+    fade_duration_entry.insert(0, str(config.get("screensaver", {}).get("fade_duration", 3.0)))
 
     btn_frame = ttk.Frame(root)
     btn_frame.pack(pady=10)
@@ -217,8 +231,8 @@ def main_screensaver():
     
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
     try:
-        debug_print("Loading config.json...")
-        with open("config.json") as f:
+        debug_print("Loading MatrixQTTConfig.json...")
+        with open("MatrixQTTConfig.json") as f:
             config = json.load(f)
         
         mqtt_conf = config["mqtt"]
@@ -236,7 +250,7 @@ def main_screensaver():
         pygame.init()
         screen = pygame.display.set_mode(
             (virtual_width, virtual_height),
-            pygame.DOUBLEBUF | pygame.HWSURFACE | pygame.NOFRAME
+            pygame.DOUBLEBUF | pygame.HWSURFACE | pygame.NOFRAME, 32
         )
         pygame.display.set_caption("MQTT Matrix Screensaver")
         pygame.mouse.set_visible(False)
@@ -249,6 +263,9 @@ def main_screensaver():
             "keywords": {k.lower(): tuple(v) for k, v in screen_conf["keywords"].items()},
             "background": tuple(screen_conf["background_color"])
         }
+
+        fade_duration = screen_conf.get("fade_duration", 3.0)
+        max_messages = screen_conf.get("max_messages", 100)
 
         client = mqtt.Client()
 
@@ -295,14 +312,27 @@ def main_screensaver():
                         else:
                             start += 1
 
-                messages.append({
+                alpha_step = (255 - screen_conf["min_alpha"]) / len(full_text) if len(full_text) > 0 else 0
+
+                new_msg = {
                     "text": full_text,
+                    "colors": color_list,
                     "x": random.randint(0, virtual_width),
                     "y": -len(full_text) * screen_conf["font_size"],
                     "speed": current_speed * random.uniform(0.7, 1.3),
-                    "chars": [{"char": c, "color": color_list[i]} for i, c in enumerate(full_text)],
-                    "alpha_step": (255 - screen_conf["min_alpha"]) / len(full_text) if len(full_text) > 0 else 0
-                })
+                    "dirty": True,
+                    "surface": None,
+                    "alpha_step": alpha_step,
+                    "height": 0,
+                    "fade_alpha": 255,
+                    "is_fading": False,
+                    "fade_start_time": 0
+                }
+                
+                messages.append(new_msg)
+                
+                while len(messages) > max_messages:
+                    messages.pop(0)
 
             except Exception as e:
                 debug_print("Message processing error:", e)
@@ -318,45 +348,77 @@ def main_screensaver():
         mqtt_thread = threading.Thread(target=client.loop_forever, daemon=True)
         mqtt_thread.start()
 
-        # Main loop
+        char_width, char_height = font.size('X')
+
         debug_print("Entering main loop")
         clock = pygame.time.Clock()
         while running:
+            current_time = time.time()
             delta_time = clock.tick(60) / 1000.0
             
             for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                elif event.type == pygame.KEYDOWN:
-                    running = False
-                elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.type in [pygame.QUIT, pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN]:
                     running = False
                 elif event.type == pygame.MOUSEMOTION:
                     current_pos = pygame.mouse.get_pos()
                     dx = current_pos[0] - start_mouse_pos[0]
                     dy = current_pos[1] - start_mouse_pos[1]
-                    distance_moved = (dx**2 + dy**2)**0.5
-                    
-                    if distance_moved > MOUSE_MOVE_THRESHOLD:
+                    if (dx**2 + dy**2)**0.5 > MOUSE_MOVE_THRESHOLD:
                         running = False
+
+            for msg in messages[:]:
+                
+                msg["y"] += msg["speed"] * delta_time * 60
+                
+                if not msg["is_fading"]:
+                    if msg["y"] >= virtual_height - msg.get("height", 0):
+                        msg["is_fading"] = True
+                        msg["fade_start_time"] = current_time
+                else:
+                    elapsed = current_time - msg["fade_start_time"]
+                    if elapsed >= fade_duration:
+                        messages.remove(msg)
+                        continue
+                    msg["fade_alpha"] = int(255 * (1 - elapsed / fade_duration))
 
             screen.fill(colors["background"])
             
-            for msg in messages[:]:
-                msg["y"] += msg["speed"] * delta_time * 60
-                
-                for i, char_data in enumerate(msg["chars"]):
+            for msg in messages:
+                if msg["dirty"]:
                     try:
-                        alpha = screen_conf["min_alpha"] + i * msg["alpha_step"]
-                        surface = font.render(char_data["char"], True, char_data["color"])
-                        surface.set_alpha(alpha)
-                        screen.blit(surface, (msg["x"], msg["y"] + i * screen_conf["font_size"]))
+                        text = msg["text"]
+                        color_list = msg["colors"]
+                        min_alpha = screen_conf["min_alpha"]
+                        
+                        surface_height = len(text) * screen_conf["font_size"]
+                        msg_surface = pygame.Surface((char_width, surface_height), pygame.SRCALPHA)
+                        
+                        for i, (char, color) in enumerate(zip(text, color_list)):
+                            alpha = min_alpha + i * msg["alpha_step"]
+                            char_surface = font.render(char, True, color)
+                            char_surface.set_alpha(alpha)
+                            msg_surface.blit(char_surface, (0, i * screen_conf["font_size"]))
+                        
+                        msg["surface"] = msg_surface
+                        msg["height"] = surface_height
+                        msg["dirty"] = False
                     except Exception as e:
-                        debug_print(f"Rendering error: {str(e)}")
+                        debug_print(f"Error rendering message surface: {e}")
                         continue
+
+            for msg in messages:
+                if msg["surface"] is None:
+                    continue
+                    
+                draw_surface = msg["surface"]
                 
-                if msg["y"] > virtual_height + len(msg["text"]) * screen_conf["font_size"]:
-                    messages.remove(msg)
+                if msg["is_fading"]:
+                    draw_surface = msg["surface"].copy()
+                    draw_surface.set_alpha(msg["fade_alpha"])
+                
+                y_pos = msg["y"]
+                
+                screen.blit(draw_surface, (msg["x"], y_pos))
 
             pygame.display.flip()
 
@@ -377,7 +439,6 @@ def main_screensaver():
             debug_print("Error quitting Pygame:", e)
         
         debug_print("Clean shutdown completed")
-    
     
 if __name__ == "__main__":
     if len(sys.argv) > 1:
