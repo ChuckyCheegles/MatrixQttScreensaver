@@ -13,7 +13,7 @@ A real-time MQTT message visualizer inspired by the Matrix digital rain effect. 
 - Adjustable scroll speed
 - JSON payload parsing
 - Dynamic message fading
-- Cross-platform support
+- Native Windows Support(Should work on other systems but I wanted this on my gaming PC and Linux isn't *quite* there yet)
 
 ## Requirements
 
@@ -23,6 +23,13 @@ A real-time MQTT message visualizer inspired by the Matrix digital rain effect. 
 
 ## Installation
 
+# Windows Specific
+
+Download the latest release and extract it into C:\\Windows\System32\
+
+It should just show up as an option when you go to select a screen saver.
+
+# Any other platform is as follows
 
 # 1. Clone repository
 git clone https://github.com/melancholytron/MatrixQtt.git
@@ -30,7 +37,7 @@ git clone https://github.com/melancholytron/MatrixQtt.git
 
 ## Configuration
 
-Edit `config.json`:
+Edit `MatrixMQTTConfig.json`:
 
 
 {
@@ -66,19 +73,6 @@ Edit `config.json`:
 Run the screensaver:
 
 python MatrixQtt.py
-
-### Controls
-
-Key Functions:
-
-`+`
-Increase scroll speed
-`-`
-Decrease scroll speed
-`C`
-Clear screen
-`ESC`
-Quit
 
 ## Configuration Options
 
