@@ -1,9 +1,9 @@
 {
   "mqtt": {
-    "broker": "10.0.0.2",
+    "broker": "192.168.0.2",
     "port": 1883,
-    "username": "mqtt",
-    "password": "lalalalalalalalalala",
+    "username": "home",
+    "password": "lalalalalalalalalalalala",
     "topics": [
       "docker/#",
       "hass.agent/#",
@@ -19,6 +19,7 @@
     "font_name": "monospace",
     "font_size": 25,
     "speed": 7.0,
+    "max_messages": 500,
     "topic_color": [
       32,
       215,
