@@ -1,7 +1,7 @@
 
 # MatrixQTT Screensaver
 
-A real-time MQTT message visualizer inspired by the Matrix digital rain effect and originally made by @melancholytron . Displays incoming MQTT messages with customizable colors and effects.
+A real-time MQTT message visualizer inspired by the Matrix digital rain effect and originally made by @melancholytron Displays incoming MQTT messages with customizable colors and effects.
 
 
 
